@@ -79,8 +79,9 @@ class APIResponse(BaseModel):
     data: InvoiceExtractionResult
 # ---------------------------------------------------
 
-BASE_PROMPT = "You are an expert AI data extractor for Japanese business documents. Extract the required fields based on the provided JSON schema. Carefully examine the image(s) provided."
-
+BASE_PROMPT = """You are an expert AI data extractor for Japanese business documents. 
+Extract the required fields based on the provided JSON schema. Carefully examine ALL images provided. 
+CRITICAL RULE: If the document contains multiple distinct tickets, receipts, or invoices (even if they are on different pages), you MUST create a separate object in the 'documents' list for EACH individual item. Do NOT merge them into a single document object."""
 # ---------------- 4. RETRY & ASYNC QUEUE ----------------
 # Ловим только ошибки Google API и таймауты. Ошибки кода Pydantic падать будут сразу.
 @retry(
