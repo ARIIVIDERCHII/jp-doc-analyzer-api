@@ -41,11 +41,18 @@ def verify_api_key(api_key: str = Security(api_key_header)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Access denied.")
     return api_key
 
-best_model = 'gemini-1.5-flash'
+# Умный поиск актуальной модели (безопасно для Сингапура)
+try:
+    available_models = [m.name.replace('models/', '') for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    best_model = next((m for m in ['gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-pro-vision'] if m in available_models), 'gemini-1.5-flash-latest')
+except Exception as e:
+    logger.warning(f"List models API blocked or failed, using fallback. Error: {e}")
+    best_model = 'gemini-1.5-flash-latest'
+
 logger.info(f"Initialized: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | PDF DPI: {PDF_DPI}")
 model = genai.GenerativeModel(best_model)
 
-app = FastAPI(title="Enterprise JP Doc Analyzer (V4.2 - Strict Multi-Page)")
+app = FastAPI(title="Enterprise JP Doc Analyzer (V4.3 - Stable Release)")
 
 class DocumentItem(BaseModel):
     company_name: Optional[str] = Field(description="Name of the company issuing the document")
@@ -64,11 +71,16 @@ class InvoiceExtractionResult(BaseModel):
     currency: Optional[str] = Field(description="Currency code (e.g., JPY, USD)")
     documents: List[DocumentItem]
 
-# ЖЕСТКИЙ ПРОМПТ С УКАЗАНИЕМ НА СТРАНИЦЫ
+# ЖЕСТКИЙ ПРОМПТ С ЗАПРЕТОМ ДЕДУПЛИКАЦИИ
 BASE_PROMPT = """You are an expert AI data extractor for Japanese business documents. 
-Extract the required fields based on the provided JSON schema. 
+Extract the required fields based on the JSON schema. 
 I am providing you with multiple images representing pages of a document. Each image is preceded by a "--- PAGE X ---" text marker.
-CRITICAL RULE: You MUST scan EVERY SINGLE PAGE provided. If the document contains multiple distinct tickets, receipts, or invoices across different pages, you MUST create a separate object in the 'documents' list for EACH individual item. Do NOT stop after the first page. Do NOT merge them into a single document object."""
+
+CRITICAL RULES:
+1. Scan EVERY SINGLE PAGE.
+2. DO NOT DEDUPLICATE. Even if the tickets/receipts look EXACTLY identical (same company, same date, same price), if they are on different pages or are separate physical items, you MUST treat them as completely separate items.
+3. NEVER MERGE items. If you see 3 identical tickets, you MUST output 3 separate objects in the 'documents' array.
+4. The 'amount' field MUST be the price of THAT SPECIFIC TICKET alone, do not sum them up inside the 'amount' field."""
 
 class APIResponse(BaseModel):
     status: str
@@ -121,7 +133,6 @@ async def extract_data(file: UploadFile = File(...), api_key: str = Depends(veri
                 pix = page.get_pixmap(dpi=PDF_DPI)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 
-                # СЕКРЕТНЫЙ ТРЮК: ЧЕРЕДОВАНИЕ ТЕКСТА И КАРТИНОК
                 payload.append(f"--- PAGE {page_num + 1} ---")
                 payload.append(img)
                 
