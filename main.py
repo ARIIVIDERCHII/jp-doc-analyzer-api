@@ -3,7 +3,7 @@ import io
 import time
 import asyncio
 import logging
-import fitz  # PyMuPDF
+import fitz
 from PIL import Image
 from typing import List, Optional
 from pydantic import BaseModel, Field
@@ -12,10 +12,9 @@ from fastapi import FastAPI, UploadFile, File, Security, HTTPException, status, 
 from fastapi.security import APIKeyHeader
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import google.generativeai as genai
-from google.api_core.exceptions import GoogleAPIError # Специфичные ошибки Google
+from google.api_core.exceptions import GoogleAPIError
 from dotenv import load_dotenv
 
-# ---------------- 1. НАСТРОЙКИ, ЛОГИ И ЛИМИТЫ ----------------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -25,34 +24,29 @@ genai.configure(api_key=api_key)
 
 APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "fallback-secret-for-dev")
 
-# Enterprise Guards (можно переопределить в .env)
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", 10))
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 PDF_DPI = int(os.getenv("PDF_DPI", 150))
-MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", 10)) # Защита от OOM (Out of Memory)
-MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", 5)) # Ограничение нагрузки на API
+MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", 10))
+MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", 5))
 
-# Семафор для контроля конкурентности (Не пустит больше N запросов к ИИ одновременно)
 ai_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-# ---------------- 2. БЕЗОПАСНОСТЬ ----------------
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
 def verify_api_key(api_key: str = Security(api_key_header)):
     if api_key != APP_SECRET_KEY:
-        logger.warning("Блокировка: Неверный API ключ.")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Доступ запрещен.")
+        logger.warning("Access Denied: Invalid API key provided.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Access denied.")
     return api_key
 
-# Инициализация модели
 available_models = [m.name.replace('models/', '') for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
 best_model = next((m for m in ['gemini-1.5-flash', 'gemini-pro-vision'] if m in available_models), available_models[0])
-logger.info(f"Инициализация: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | Max File: {MAX_FILE_SIZE_MB}MB")
+logger.info(f"Initialized: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | Max File: {MAX_FILE_SIZE_MB}MB")
 model = genai.GenerativeModel(best_model)
 
 app = FastAPI(title="Enterprise JP Doc Analyzer (V4 - High Load & Metrics)")
 
-# ---------------- 3. PYDANTIC СХЕМЫ ----------------
 class DocumentItem(BaseModel):
     company_name: Optional[str] = Field(description="Name of the company issuing the document")
     payer_name: Optional[str] = Field(description="Name of the person/company being billed (宛名 - Atena)")
@@ -70,20 +64,17 @@ class InvoiceExtractionResult(BaseModel):
     currency: Optional[str] = Field(description="Currency code (e.g., JPY, USD)")
     documents: List[DocumentItem]
 
-# Новый Wrapper для ответа API (Решает баг с потерей route_used и добавляет метрики)
 class APIResponse(BaseModel):
     status: str
     route_used: str
     processing_time_sec: float
     total_tokens_used: Optional[int] = None
     data: InvoiceExtractionResult
-# ---------------------------------------------------
 
 BASE_PROMPT = """You are an expert AI data extractor for Japanese business documents. 
 Extract the required fields based on the provided JSON schema. Carefully examine ALL images provided. 
 CRITICAL RULE: If the document contains multiple distinct tickets, receipts, or invoices (even if they are on different pages), you MUST create a separate object in the 'documents' list for EACH individual item. Do NOT merge them into a single document object."""
-# ---------------- 4. RETRY & ASYNC QUEUE ----------------
-# Ловим только ошибки Google API и таймауты. Ошибки кода Pydantic падать будут сразу.
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -91,24 +82,21 @@ CRITICAL RULE: If the document contains multiple distinct tickets, receipts, or 
     reraise=True
 )
 async def safe_generate_content(payload, config):
-    # Ограничиваем конкурентные вызовы
     async with ai_semaphore:
-        logger.info("Отправка запроса в Gemini API (Семафор захвачен)...")
+        logger.info("Sending request to Gemini API (Semaphore acquired)...")
         return await model.generate_content_async(payload, generation_config=config)
-# --------------------------------------------------------
 
 @app.post("/api/v1/extract-data", response_model=APIResponse)
 async def extract_data(file: UploadFile = File(...), api_key: str = Depends(verify_api_key)):
     start_time = time.time()
-    logger.info(f"Входящий запрос: {file.filename}")
+    logger.info(f"Incoming request: {file.filename}")
     
     try:
         contents = await file.read()
         
-        # GUARD: Проверка размера файла
         if len(contents) > MAX_FILE_SIZE_BYTES:
-            logger.warning(f"Отказ: Файл превышает {MAX_FILE_SIZE_MB}MB.")
-            raise HTTPException(status_code=413, detail=f"Размер файла превышает лимит в {MAX_FILE_SIZE_MB}MB.")
+            logger.warning(f"Rejected: File exceeds {MAX_FILE_SIZE_MB}MB limit.")
+            raise HTTPException(status_code=413, detail=f"File size exceeds the {MAX_FILE_SIZE_MB}MB limit.")
             
         generation_config = genai.GenerationConfig(
             response_mime_type="application/json",
@@ -122,10 +110,9 @@ async def extract_data(file: UploadFile = File(...), api_key: str = Depends(veri
             pdf_document = fitz.open(stream=contents, filetype="pdf")
             total_pages = len(pdf_document)
             
-            # GUARD: Ограничение количества страниц
             pages_to_process = min(total_pages, MAX_PDF_PAGES)
             if total_pages > MAX_PDF_PAGES:
-                logger.warning(f"PDF обрезан: Обработка {MAX_PDF_PAGES} из {total_pages} страниц.")
+                logger.warning(f"PDF truncated: Processing {MAX_PDF_PAGES} out of {total_pages} pages.")
                 
             for page_num in range(pages_to_process):
                 page = pdf_document.load_page(page_num)
@@ -133,7 +120,6 @@ async def extract_data(file: UploadFile = File(...), api_key: str = Depends(veri
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 payload.append(img)
                 
-                # OPTIMIZATION: Ручная очистка памяти
                 del pix
                 del page
                 
@@ -146,23 +132,19 @@ async def extract_data(file: UploadFile = File(...), api_key: str = Depends(veri
             route_used = "Direct Vision Engine"
             
         else:
-            raise HTTPException(status_code=400, detail="Поддерживаются только PDF и картинки (JPEG, PNG).")
+            raise HTTPException(status_code=400, detail="Only PDF and image files (JPEG, PNG) are supported.")
 
-        # Асинхронный вызов с Retry и Семафором
         response = await safe_generate_content(payload, generation_config)
         
-        # METRICS: Подсчет токенов (если модель отдает эти данные)
         tokens_used = None
         if hasattr(response, 'usage_metadata'):
             tokens_used = response.usage_metadata.total_token_count
             
-        # Строгая валидация Pydantic
         result_data = InvoiceExtractionResult.model_validate_json(response.text)
         process_time = round(time.time() - start_time, 2)
         
-        logger.info(f"Успех. Время: {process_time}с | Токены: {tokens_used} | Сумма: {result_data.grand_total}")
+        logger.info(f"Success. Time: {process_time}s | Tokens: {tokens_used} | Grand Total: {result_data.grand_total}")
         
-        # Формируем безопасный финальный ответ по схеме APIResponse
         return APIResponse(
             status="success",
             route_used=route_used,
@@ -174,8 +156,8 @@ async def extract_data(file: UploadFile = File(...), api_key: str = Depends(veri
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Внутренняя ошибка сервера: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Произошла непредвиденная ошибка обработки.")
+        logger.error(f"Internal server error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An unexpected processing error occurred.")
 
 if __name__ == "__main__":
     import uvicorn
