@@ -41,8 +41,7 @@ def verify_api_key(api_key: str = Security(api_key_header)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Access denied.")
     return api_key
 
-available_models = [m.name.replace('models/', '') for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-best_model = next((m for m in ['gemini-1.5-flash', 'gemini-pro-vision'] if m in available_models), available_models[0])
+best_model = 'gemini-1.5-flash'
 logger.info(f"Initialized: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | PDF DPI: {PDF_DPI}")
 model = genai.GenerativeModel(best_model)
 
