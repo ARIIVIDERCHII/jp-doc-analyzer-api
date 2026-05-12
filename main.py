@@ -39,7 +39,7 @@ def verify_api_key(api_key: str = Security(api_key_header)):
     return api_key
 
 # ULTRA-STABLE ENTERPRISE VARIANT
-best_model = "gemini-2.0-flash"
+best_model = "gemini-1.5-flash"
 logger.info(f"Initialized Model: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | PDF DPI: {PDF_DPI}")
 model = genai.GenerativeModel(best_model)
 
