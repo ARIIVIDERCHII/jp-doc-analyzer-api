@@ -113,7 +113,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-API_URL = "https://jp-doc-analyzer-api-v2.onrender.com/api/v1/extract-data"
+API_URL = "https://jp-doc-analyzer-api.onrender.com/api/v1/extract-data"
 
 # --- ВЫБОР ЯЗЫКА ---
 selected_lang = st.sidebar.selectbox("Language / 言語 / Язык", ["English", "日本語", "Русский"])
@@ -129,7 +129,7 @@ st.markdown("""
 st.divider()
 
 with st.sidebar:
-    st.image("123.png", width=50) # Имя должно совпадать на 100%
+    st.image("123.png", width=50) 
     st.header(t["upload_center"])
     st.markdown(t["drag_drop"])
     
