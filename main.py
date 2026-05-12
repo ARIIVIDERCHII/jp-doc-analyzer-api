@@ -24,7 +24,7 @@ genai.configure(api_key=api_key)
 
 APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "fallback-secret-for-dev")
 
-# ОПТИМИЗАЦИЯ ПАМЯТИ ДЛЯ RENDER (Free Tier 512MB)
+# ОПТИМИЗАЦИЯ ПАМЯТИ ДЛЯ RENDER
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", 10))
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 PDF_DPI = int(os.getenv("PDF_DPI", 110)) 
@@ -37,16 +37,31 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
 def verify_api_key(api_key: str = Security(api_key_header)):
     if api_key != APP_SECRET_KEY:
-        logger.warning("Access Denied: Invalid API key provided.")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Access denied.")
     return api_key
 
-# ЖЕСТКО ЗАДАЕМ СТАБИЛЬНУЮ МОДЕЛЬ ДЛЯ СЕРВЕРА В США
-best_model = 'gemini-1.5-flash'
-logger.info(f"Initialized: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | PDF DPI: {PDF_DPI}")
+# УМНЫЙ ПОИСК МОДЕЛЕЙ (Работает в США)
+available_models = []
+try:
+    logger.info("Fetching available models from Google...")
+    for m in genai.list_models():
+        if 'generateContent' in m.supported_generation_methods:
+            available_models.append(m.name.replace('models/', ''))
+    logger.info(f"Google says your API key can use: {available_models}")
+except Exception as e:
+    logger.error(f"Failed to fetch models: {e}")
+
+# Выбираем лучшую доступную модель (приоритет 1.5, так как нужна JSON схема)
+best_model = 'gemini-1.5-flash' # Дефолт
+for target in ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-pro', 'gemini-1.5-pro-latest']:
+    if target in available_models:
+        best_model = target
+        break
+
+logger.info(f"Selected Model: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | PDF DPI: {PDF_DPI}")
 model = genai.GenerativeModel(best_model)
 
-app = FastAPI(title="Enterprise JP Doc Analyzer (V4.4 - US Region Stable)")
+app = FastAPI(title="Enterprise JP Doc Analyzer (V5.0 - Ultimate US)")
 
 class DocumentItem(BaseModel):
     company_name: Optional[str] = Field(description="Name of the company issuing the document")
@@ -65,7 +80,6 @@ class InvoiceExtractionResult(BaseModel):
     currency: Optional[str] = Field(description="Currency code (e.g., JPY, USD)")
     documents: List[DocumentItem]
 
-# ЖЕСТКИЙ ПРОМПТ С ЗАПРЕТОМ ДЕДУПЛИКАЦИИ
 BASE_PROMPT = """You are an expert AI data extractor for Japanese business documents. 
 Extract the required fields based on the JSON schema. 
 I am providing you with multiple images representing pages of a document. Each image is preceded by a "--- PAGE X ---" text marker.
@@ -91,7 +105,7 @@ class APIResponse(BaseModel):
 )
 async def safe_generate_content(payload, config):
     async with ai_semaphore:
-        logger.info("Sending request to Gemini API (Semaphore acquired)...")
+        logger.info("Sending request to Gemini API...")
         return await model.generate_content_async(payload, generation_config=config)
 
 @app.post("/api/v1/extract-data", response_model=APIResponse)
@@ -103,7 +117,6 @@ async def extract_data(file: UploadFile = File(...), api_key: str = Depends(veri
         contents = await file.read()
         
         if len(contents) > MAX_FILE_SIZE_BYTES:
-            logger.warning(f"Rejected: File exceeds {MAX_FILE_SIZE_MB}MB limit.")
             raise HTTPException(status_code=413, detail=f"File size exceeds the {MAX_FILE_SIZE_MB}MB limit.")
             
         generation_config = genai.GenerationConfig(
@@ -119,9 +132,6 @@ async def extract_data(file: UploadFile = File(...), api_key: str = Depends(veri
             total_pages = len(pdf_document)
             
             pages_to_process = min(total_pages, MAX_PDF_PAGES)
-            if total_pages > MAX_PDF_PAGES:
-                logger.warning(f"PDF truncated: Processing {MAX_PDF_PAGES} out of {total_pages} pages.")
-                
             for page_num in range(pages_to_process):
                 page = pdf_document.load_page(page_num)
                 pix = page.get_pixmap(dpi=PDF_DPI)
@@ -147,14 +157,11 @@ async def extract_data(file: UploadFile = File(...), api_key: str = Depends(veri
 
         response = await safe_generate_content(payload, generation_config)
         
-        tokens_used = None
-        if hasattr(response, 'usage_metadata'):
-            tokens_used = response.usage_metadata.total_token_count
-            
+        tokens_used = response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else None
         result_data = InvoiceExtractionResult.model_validate_json(response.text)
         process_time = round(time.time() - start_time, 2)
         
-        logger.info(f"Success. Time: {process_time}s | Tokens: {tokens_used} | Grand Total: {result_data.grand_total}")
+        logger.info(f"Success. Time: {process_time}s | Tokens: {tokens_used}")
         
         return APIResponse(
             status="success",
