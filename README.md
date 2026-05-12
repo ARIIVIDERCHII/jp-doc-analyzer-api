@@ -1,6 +1,10 @@
 # Enterprise JP Doc Analyzer 📄⚡
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://jp-doc-analyzer-api-3ixg8gpuoibwqmb43oca3j.streamlit.app/)
+<div align="center">
+
+[![Live Demo](https://img.shields.io/badge/Launch_App-Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://jp-doc-analyzer-api-3ixg8gpuoibwqmb43oca3j.streamlit.app/)
+
+</div>
 
 [English](#english) | [日本語](#日本語) | [Русский](#русский)
 
