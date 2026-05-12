@@ -1,6 +1,8 @@
 # Enterprise JP Doc Analyzer 📄⚡
 
-[English](#english) | [日本語](#日本語)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://jp-doc-analyzer-api-3ixg8gpuoibwqmb43oca3j.streamlit.app/)
+
+[English](#english) | [日本語](#日本語) | [Русский](#русский)
 
 ---
 
@@ -12,16 +14,11 @@ An enterprise-grade, high-load microservice for extracting strictly structured J
 Built with **FastAPI** and **Gemini Vision AI**, this service features hybrid document routing, strict schema validation, and asynchronous processing, making it ready for production environments.
 
 ### 🚀 Key Features
-* **Hybrid Vision Engine:** Automatically routes standard images directly to AI, while PDFs are rasterized in-memory using `PyMuPDF` for accurate multi-page processing.
+* **Hybrid Vision Engine:** Automatically routes standard images directly to AI, while PDFs are rasterized in-memory for accurate multi-page processing.
 * **Strict Data Validation:** Enforces a 100% predictable JSON structure using `Pydantic` schemas.
-* **Fault Tolerance:** Implements exponential backoff and retry mechanisms (`Tenacity`) for network failures.
-* **High-Load Guardrails:** Uses `asyncio.Semaphore` to control concurrent API requests, protecting against rate limits.
+* **Fault Tolerance:** Implements exponential backoff and retry mechanisms for network failures.
+* **High-Load Guardrails:** Uses `asyncio.Semaphore` to control concurrent API requests.
 * **Dockerized:** Fully containerized for instant deployment.
-
-### 🛠️ Tech Stack
-* **Backend:** Python 3.11, FastAPI
-* **AI Engine:** Google Generative AI (Gemini 1.5 Flash)
-* **Processing:** PyMuPDF, Pillow
 
 ---
 
@@ -33,16 +30,25 @@ Built with **FastAPI** and **Gemini Vision AI**, this service features hybrid do
 **FastAPI**と**Gemini Vision AI**をベースに構築されており、ハイブリッドルーティング、厳格なスキーマ検証、および非同期処理を備え、本番環境に即座に導入可能な設計となっています。
 
 ### 🚀 主な機能
-* **ハイブリッド・ビジョンエンジン:** 標準的な画像はAIに直接ルーティングし、PDFは`PyMuPDF`を使用してメモリ内でラスタライズ（画像化）することで、複数ページの正確な解析を実現します。
+* **ハイブリッド・ビジョンエンジン:** 標準的な画像はAIに直接ルーティングし、PDFはメモリ内でラスタライズ（画像化）することで、複数ページの正確な解析を実現します。
 * **厳格なデータ検証:** `Pydantic`スキーマを使用して、100%予測可能なJSON構造を強制します。
-* **耐障害性:** ネットワークやAPIの失敗に対し、指数関数的バックオフとリトライメカニズム（`Tenacity`）を実装しています。
-* **高負荷ガードレール:** `asyncio.Semaphore`を使用して同時APIリクエスト数を制御し、レートリミットやメモリ不足（OOM）を防ぎます。
-* **Docker対応:** コンテナ化されており、あらゆるクラウド環境に即座にデプロイ可能です。
+* **耐障害性:** ネットワーク失敗に対し、指数関数的バックオフとリトライメカニズムを実装しています。
+* **高負荷ガードレール:** `asyncio.Semaphore`を使用して同時リクエスト数を制御し、レートリミットを防ぎます。
 
-### 🛠️ 技術スタック
-* **バックエンド:** Python 3.11, FastAPI
-* **AIエンジン:** Google Generative AI (Gemini 1.5 Flash)
-* **ドキュメント処理:** PyMuPDF (fitz), Pillow (PIL)
+---
+
+<a name="русский"></a>
+## Русский
+
+Микросервис корпоративного уровня для извлечения строго структурированных данных в формате JSON из японских бизнес-документов (инвойсы и чеки).
+
+Создан на базе **FastAPI** и **Gemini Vision AI**. Проект включает в себя гибридную маршрутизацию документов, строгую валидацию схем и асинхронную обработку, что делает его готовым к работе в высоконагруженных системах.
+
+### 🚀 Ключевые возможности
+* **Hybrid Vision Engine:** Изображения обрабатываются напрямую ИИ, а PDF-файлы предварительно растрируются для точного анализа каждой страницы.
+* **Строгая валидация данных:** Использование схем `Pydantic` гарантирует 100% предсказуемую структуру JSON.
+* **Отказоустойчивость:** Реализованы механизмы экспоненциальной задержки и повторных попыток.
+* **Безопасность нагрузки:** Использование `asyncio.Semaphore` для контроля конкурентных запросов к API.
 
 ---
 
