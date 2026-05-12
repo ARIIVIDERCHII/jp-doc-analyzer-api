@@ -52,11 +52,24 @@ except Exception as e:
     logger.error(f"Failed to fetch models: {e}")
 
 # Выбираем лучшую доступную модель (приоритет 1.5, так как нужна JSON схема)
-best_model = 'gemini-1.5-flash' # Дефолт
-for target in ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-pro', 'gemini-1.5-pro-latest']:
+preferred_models = [
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-pro-latest"
+]
+
+best_model = None
+
+for target in preferred_models:
     if target in available_models:
         best_model = target
         break
+
+if not best_model:
+    raise RuntimeError(
+        f"No compatible Gemini models found. Available: {available_models}"
+    )
 
 logger.info(f"Selected Model: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | PDF DPI: {PDF_DPI}")
 model = genai.GenerativeModel(best_model)
