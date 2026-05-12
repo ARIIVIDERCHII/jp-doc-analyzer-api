@@ -24,7 +24,6 @@ genai.configure(api_key=api_key)
 
 APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "fallback-secret-for-dev")
 
-# ОПТИМИЗАЦИЯ ПАМЯТИ ДЛЯ RENDER
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", 10))
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 PDF_DPI = int(os.getenv("PDF_DPI", 110)) 
@@ -32,7 +31,6 @@ MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", 5))
 MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", 3)) 
 
 ai_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
-
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
 def verify_api_key(api_key: str = Security(api_key_header)):
@@ -40,41 +38,12 @@ def verify_api_key(api_key: str = Security(api_key_header)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Access denied.")
     return api_key
 
-# УМНЫЙ ПОИСК МОДЕЛЕЙ (Работает в США)
-available_models = []
-try:
-    logger.info("Fetching available models from Google...")
-    for m in genai.list_models():
-        if 'generateContent' in m.supported_generation_methods:
-            available_models.append(m.name.replace('models/', ''))
-    logger.info(f"Google says your API key can use: {available_models}")
-except Exception as e:
-    logger.error(f"Failed to fetch models: {e}")
-
-# Выбираем лучшую доступную модель (приоритет 1.5, так как нужна JSON схема)
-preferred_models = [
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-pro-latest"
-]
-
-best_model = None
-
-for target in preferred_models:
-    if target in available_models:
-        best_model = target
-        break
-
-if not best_model:
-    raise RuntimeError(
-        f"No compatible Gemini models found. Available: {available_models}"
-    )
-
-logger.info(f"Selected Model: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | PDF DPI: {PDF_DPI}")
+# ULTRA-STABLE ENTERPRISE VARIANT
+best_model = "gemini-2.0-flash"
+logger.info(f"Initialized Model: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | PDF DPI: {PDF_DPI}")
 model = genai.GenerativeModel(best_model)
 
-app = FastAPI(title="Enterprise JP Doc Analyzer (V5.0 - Ultimate US)")
+app = FastAPI(title="Enterprise JP Doc Analyzer (V6.0 - Gemini 2.0)")
 
 class DocumentItem(BaseModel):
     company_name: Optional[str] = Field(description="Name of the company issuing the document")
@@ -118,7 +87,7 @@ class APIResponse(BaseModel):
 )
 async def safe_generate_content(payload, config):
     async with ai_semaphore:
-        logger.info("Sending request to Gemini API...")
+        logger.info("Sending request to Gemini 2.0 API...")
         return await model.generate_content_async(payload, generation_config=config)
 
 @app.post("/api/v1/extract-data", response_model=APIResponse)
@@ -130,7 +99,7 @@ async def extract_data(file: UploadFile = File(...), api_key: str = Depends(veri
         contents = await file.read()
         
         if len(contents) > MAX_FILE_SIZE_BYTES:
-            raise HTTPException(status_code=413, detail=f"File size exceeds the {MAX_FILE_SIZE_MB}MB limit.")
+            raise HTTPException(status_code=413, detail=f"File size exceeds the limit.")
             
         generation_config = genai.GenerationConfig(
             response_mime_type="application/json",
@@ -140,7 +109,8 @@ async def extract_data(file: UploadFile = File(...), api_key: str = Depends(veri
         payload = [BASE_PROMPT]
         route_used = ""
 
-        if "pdf" in file.content_type:
+        # Улучшенная проверка на PDF
+        if file.filename.lower().endswith(".pdf") or "pdf" in file.content_type:
             pdf_document = fitz.open(stream=contents, filetype="pdf")
             total_pages = len(pdf_document)
             
@@ -159,14 +129,14 @@ async def extract_data(file: UploadFile = File(...), api_key: str = Depends(veri
             pdf_document.close()
             route_used = f"PDF Vision Rasterizer ({pages_to_process} pages)"
 
-        elif "image" in file.content_type:
+        elif "image" in file.content_type or file.filename.lower().endswith((".png", ".jpg", ".jpeg")):
             image = Image.open(io.BytesIO(contents))
             payload.append("--- SINGLE IMAGE ---")
             payload.append(image)
             route_used = "Direct Vision Engine"
             
         else:
-            raise HTTPException(status_code=400, detail="Only PDF and image files (JPEG, PNG) are supported.")
+            raise HTTPException(status_code=400, detail="Only PDF and image files are supported.")
 
         response = await safe_generate_content(payload, generation_config)
         
