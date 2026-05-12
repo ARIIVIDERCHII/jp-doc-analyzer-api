@@ -38,12 +38,28 @@ def verify_api_key(api_key: str = Security(api_key_header)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Access denied.")
     return api_key
 
-# ULTRA-STABLE ENTERPRISE VARIANT
-best_model = "gemini-1.5-flash"
+# --- УМНЫЙ АВТО-ПОИСК МОДЕЛИ ---
+available_models = []
+try:
+    available_models = [m.name.replace('models/', '') for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    logger.info(f"Google allowed models for this key: {available_models}")
+except Exception as e:
+    logger.error(f"Failed to fetch models: {e}")
+
+# Выкидываем 2.0 из-за ошибки квоты "limit: 0"
+safe_models = [m for m in available_models if '2.0' not in m]
+
+# Ищем любую доступную версию flash, иначе берем первую попавшуюся
+best_model = "gemini-1.5-flash-latest" # резервный дефолт
+if safe_models:
+    flash_models = [m for m in safe_models if 'flash' in m]
+    best_model = flash_models[0] if flash_models else safe_models[0]
+
 logger.info(f"Initialized Model: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | PDF DPI: {PDF_DPI}")
 model = genai.GenerativeModel(best_model)
+# --------------------------------
 
-app = FastAPI(title="Enterprise JP Doc Analyzer (V6.0 - Gemini 2.0)")
+app = FastAPI(title="Enterprise JP Doc Analyzer (V7.0 - Auto Model)")
 
 class DocumentItem(BaseModel):
     company_name: Optional[str] = Field(description="Name of the company issuing the document")
@@ -87,7 +103,7 @@ class APIResponse(BaseModel):
 )
 async def safe_generate_content(payload, config):
     async with ai_semaphore:
-        logger.info("Sending request to Gemini 2.0 API...")
+        logger.info(f"Sending request to {best_model} API...")
         return await model.generate_content_async(payload, generation_config=config)
 
 @app.post("/api/v1/extract-data", response_model=APIResponse)
@@ -109,7 +125,6 @@ async def extract_data(file: UploadFile = File(...), api_key: str = Depends(veri
         payload = [BASE_PROMPT]
         route_used = ""
 
-        # Улучшенная проверка на PDF
         if file.filename.lower().endswith(".pdf") or "pdf" in file.content_type:
             pdf_document = fitz.open(stream=contents, filetype="pdf")
             total_pages = len(pdf_document)
