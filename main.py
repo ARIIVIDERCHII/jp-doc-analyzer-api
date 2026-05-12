@@ -24,11 +24,12 @@ genai.configure(api_key=api_key)
 
 APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "fallback-secret-for-dev")
 
+# ОПТИМИЗАЦИЯ ПАМЯТИ ДЛЯ RENDER (Free Tier 512MB)
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", 10))
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-PDF_DPI = int(os.getenv("PDF_DPI", 150))
-MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", 10))
-MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", 5))
+PDF_DPI = int(os.getenv("PDF_DPI", 110)) 
+MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", 5)) 
+MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", 3)) 
 
 ai_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
@@ -42,10 +43,10 @@ def verify_api_key(api_key: str = Security(api_key_header)):
 
 available_models = [m.name.replace('models/', '') for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
 best_model = next((m for m in ['gemini-1.5-flash', 'gemini-pro-vision'] if m in available_models), available_models[0])
-logger.info(f"Initialized: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | Max File: {MAX_FILE_SIZE_MB}MB")
+logger.info(f"Initialized: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | PDF DPI: {PDF_DPI}")
 model = genai.GenerativeModel(best_model)
 
-app = FastAPI(title="Enterprise JP Doc Analyzer (V4 - High Load & Metrics)")
+app = FastAPI(title="Enterprise JP Doc Analyzer (V4.2 - Strict Multi-Page)")
 
 class DocumentItem(BaseModel):
     company_name: Optional[str] = Field(description="Name of the company issuing the document")
@@ -64,16 +65,18 @@ class InvoiceExtractionResult(BaseModel):
     currency: Optional[str] = Field(description="Currency code (e.g., JPY, USD)")
     documents: List[DocumentItem]
 
+# ЖЕСТКИЙ ПРОМПТ С УКАЗАНИЕМ НА СТРАНИЦЫ
+BASE_PROMPT = """You are an expert AI data extractor for Japanese business documents. 
+Extract the required fields based on the provided JSON schema. 
+I am providing you with multiple images representing pages of a document. Each image is preceded by a "--- PAGE X ---" text marker.
+CRITICAL RULE: You MUST scan EVERY SINGLE PAGE provided. If the document contains multiple distinct tickets, receipts, or invoices across different pages, you MUST create a separate object in the 'documents' list for EACH individual item. Do NOT stop after the first page. Do NOT merge them into a single document object."""
+
 class APIResponse(BaseModel):
     status: str
     route_used: str
     processing_time_sec: float
     total_tokens_used: Optional[int] = None
     data: InvoiceExtractionResult
-
-BASE_PROMPT = """You are an expert AI data extractor for Japanese business documents. 
-Extract the required fields based on the provided JSON schema. Carefully examine ALL images provided. 
-CRITICAL RULE: If the document contains multiple distinct tickets, receipts, or invoices (even if they are on different pages), you MUST create a separate object in the 'documents' list for EACH individual item. Do NOT merge them into a single document object."""
 
 @retry(
     stop=stop_after_attempt(3),
@@ -118,16 +121,20 @@ async def extract_data(file: UploadFile = File(...), api_key: str = Depends(veri
                 page = pdf_document.load_page(page_num)
                 pix = page.get_pixmap(dpi=PDF_DPI)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                
+                # СЕКРЕТНЫЙ ТРЮК: ЧЕРЕДОВАНИЕ ТЕКСТА И КАРТИНОК
+                payload.append(f"--- PAGE {page_num + 1} ---")
                 payload.append(img)
                 
                 del pix
                 del page
                 
             pdf_document.close()
-            route_used = "PDF Vision Rasterizer"
+            route_used = f"PDF Vision Rasterizer ({pages_to_process} pages)"
 
         elif "image" in file.content_type:
             image = Image.open(io.BytesIO(contents))
+            payload.append("--- SINGLE IMAGE ---")
             payload.append(image)
             route_used = "Direct Vision Engine"
             
