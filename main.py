@@ -41,18 +41,12 @@ def verify_api_key(api_key: str = Security(api_key_header)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Access denied.")
     return api_key
 
-# Умный поиск актуальной модели (безопасно для Сингапура)
-try:
-    available_models = [m.name.replace('models/', '') for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    best_model = next((m for m in ['gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-pro-vision'] if m in available_models), 'gemini-1.5-flash-latest')
-except Exception as e:
-    logger.warning(f"List models API blocked or failed, using fallback. Error: {e}")
-    best_model = 'gemini-1.5-flash-latest'
-
+# ЖЕСТКО ЗАДАЕМ СТАБИЛЬНУЮ МОДЕЛЬ ДЛЯ СЕРВЕРА В США
+best_model = 'gemini-1.5-flash'
 logger.info(f"Initialized: {best_model} | Max Concurrent: {MAX_CONCURRENT_REQUESTS} | PDF DPI: {PDF_DPI}")
 model = genai.GenerativeModel(best_model)
 
-app = FastAPI(title="Enterprise JP Doc Analyzer (V4.3 - Stable Release)")
+app = FastAPI(title="Enterprise JP Doc Analyzer (V4.4 - US Region Stable)")
 
 class DocumentItem(BaseModel):
     company_name: Optional[str] = Field(description="Name of the company issuing the document")
